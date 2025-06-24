@@ -1,0 +1,35 @@
+# Global
+.DS_Store
+.env
+.env.local
+*.log
+
+# Node
+**/node_modules/
+
+# Build output
+**/dist/
+**/build/
+
+# Dependency directories
+**/package-lock.json
+
+# Vite cache
+**/.vite/
+
+# Local IDE/editor settings
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
+*.swp
+*.swo
+
+# Optional - npm debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Output from `npm run dev` or `vite`
+**/.cache/
