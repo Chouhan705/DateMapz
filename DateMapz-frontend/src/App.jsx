@@ -1,12 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GoogleMap, useLoadScript, Marker } from '@react-google-maps/api';
+// UPDATED: Added new icons for the detailed plan
 import { 
   HiMapPin, 
   HiCheckCircle, 
   HiArrowPath, 
   HiSparkles, 
   HiTruck, 
-  HiCog8Tooth
+  HiCog8Tooth,
+  HiClock,
+  HiArrowRightCircle
 } from 'react-icons/hi2';
 
 // --- Configuration ---
@@ -152,6 +155,7 @@ function App() {
         {datePlan && datePlan.length > 0 && (
           <div ref={resultsRef} className="p-6 bg-gray-800 rounded-lg shadow-lg space-y-4">
             <h2 className="text-2xl font-bold text-center text-pink-400">{planTitle || "Your Generated Date Plan"}</h2>
+            
             <GoogleMap mapContainerStyle={mapContainerStyle} center={location} zoom={13} onLoad={onMapLoad} options={{ disableDefaultUI: true, zoomControl: true }}>
               {location && <Marker position={location} title="Your Location" />}
               {datePlan.map((stop) => {
@@ -167,14 +171,34 @@ function App() {
                 );
               })}
             </GoogleMap>
-            <ul className="space-y-3">
-              {datePlan.sort((a, b) => (a.stopNumber || 0) - (b.stopNumber || 0)).map(stop => (
-                <li key={stop.stopNumber || stop.lng} className="p-3 bg-gray-700/50 rounded-lg">
-                  <p className="font-bold text-lg">{stop.stopNumber}. {stop.name || 'Unnamed Stop'}</p>
-                  <p className="text-sm text-gray-300">{stop.description}</p>
-                </li>
+            
+            <div>
+              {datePlan.sort((a, b) => (a.stopNumber || 0) - (b.stopNumber || 0)).map((stop, index) => (
+                <React.Fragment key={stop.stopNumber || index}>
+                  <div className="p-4 bg-gray-700/70 rounded-lg">
+                    <p className="font-bold text-lg">{stop.stopNumber}. {stop.name || 'Unnamed Stop'}</p>
+                    <div className="flex items-center gap-2 text-sm text-pink-300 mt-1">
+                      <HiClock />
+                      <span>Starts at {stop.startTime} (approx. {stop.duration})</span>
+                    </div>
+                    <p className="text-sm text-gray-300 mt-2">{stop.description}</p>
+                  </div>
+                  
+                  {stop.travelToNext && (
+                    <div className="h-20 flex items-center pl-5">
+                      <div className="border-l-2 border-dashed border-gray-500 h-full"></div>
+                      <div className="flex items-center gap-3 -ml-4">
+                          <HiArrowRightCircle className="w-8 h-8 text-gray-400" />
+                          <div className="text-gray-300">
+                            <p className="font-semibold">{stop.travelToNext.travelTime}</p>
+                            <p className="text-sm">via {stop.travelToNext.transportMode}</p>
+                          </div>
+                      </div>
+                    </div>
+                  )}
+                </React.Fragment>
               ))}
-            </ul>
+            </div>
           </div>
         )}
       </div>
