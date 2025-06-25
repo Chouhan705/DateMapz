@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleMap, useLoadScript, Marker } from '@react-google-maps/api';
-// UPDATED: Added new icons for the detailed plan
 import { 
   HiMapPin, 
   HiCheckCircle, 
@@ -34,7 +33,8 @@ const getIconForStop = (type) => {
 
 function App() {
   // --- State, Refs, Hooks ---
-  const [location, setLocation] = useState(null);
+  const [location, setLocation] = useState(null); // For GPS coords {lat, lng}
+  const [manualLocationName, setManualLocationName] = useState(''); // For manual text input
   const [selectedVibe, setSelectedVibe] = useState(null);
   const [transportMode, setTransportMode] = useState(TRANSPORT_MODES[0]);
   const [isAdult, setIsAdult] = useState(false);
@@ -54,8 +54,12 @@ function App() {
     if (!datePlan || datePlan.length === 0) return;
     if (mapRef.current) {
       const bounds = new window.google.maps.LatLngBounds();
-      if (location) bounds.extend(new window.google.maps.LatLng(location.lat, location.lng));
-      datePlan.forEach(stop => bounds.extend(new window.google.maps.LatLng(parseFloat(stop.lat), parseFloat(stop.lng))));
+      if (location) {
+        bounds.extend(new window.google.maps.LatLng(location.lat, location.lng));
+      }
+      datePlan.forEach(stop => {
+        bounds.extend(new window.google.maps.LatLng(parseFloat(stop.lat), parseFloat(stop.lng)));
+      });
       mapRef.current.fitBounds(bounds);
     }
     resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -65,8 +69,9 @@ function App() {
   const onMapLoad = (map) => { mapRef.current = map; };
 
   const handleGetLocation = () => {
+    setManualLocationName(''); 
     setError('');
-    setLocation(null); 
+    setLocation(null);
     if (!navigator.geolocation) {
       setError("Geolocation is not supported by your browser.");
       return;
@@ -75,7 +80,6 @@ function App() {
       (position) => {
         const { latitude, longitude } = position.coords;
         setLocation({ lat: latitude, lng: longitude });
-        setError('');
       },
       (err) => {
         setError("Could not get location. Please enable it in your browser settings.");
@@ -83,13 +87,25 @@ function App() {
     );
   };
 
+  const handleManualLocationChange = (e) => {
+    setLocation(null); 
+    setManualLocationName(e.target.value);
+  };
+
   const handlePlanDate = async () => {
-    if (!location || !selectedVibe || !transportMode) {
-      setError("Please complete all steps."); return;
-    }
     setLoading(true); setError('');
     setDatePlan(null); setPlanTitle('');
-    const requestBody = { location, dateVibe: selectedVibe, transportMode, isAdult };
+
+    const baseRequestBody = {
+      dateVibe: selectedVibe,
+      transportMode,
+      isAdult,
+    };
+
+    const requestBody = location
+      ? { ...baseRequestBody, location: location }
+      : { ...baseRequestBody, locationName: manualLocationName.trim() };
+
     try {
       const response = await fetch('http://localhost:3000/api/generate-plan', {
         method: 'POST',
@@ -103,8 +119,8 @@ function App() {
         stop && stop.lat != null && !isNaN(parseFloat(stop.lat)) && stop.lng != null && !isNaN(parseFloat(stop.lng))
       );
       if (rawStops.length !== validStops.length) {
-        console.warn("Warning: Some stops were filtered out due to invalid coordinates.");
-        if (validStops.length === 0) setError("The generated plan had no valid locations.");
+        console.warn("Some stops were filtered out due to invalid coordinates.");
+        if (validStops.length === 0) setError("The plan had no valid locations.");
       }
       setPlanTitle(responseData.planTitle);
       setDatePlan(validStops);
@@ -115,7 +131,11 @@ function App() {
     }
   };
 
-  const isPlanButtonDisabled = !location || !selectedVibe || !transportMode || loading;
+  const isPlanButtonDisabled = 
+    (!location && manualLocationName.trim() === '') ||
+    !selectedVibe || 
+    !transportMode || 
+    loading;
 
   // --- Render Logic ---
   if (loadError) {
@@ -143,11 +163,37 @@ function App() {
             <HiSparkles />
             <span>AI Date Planner</span>
           </h1>
-          <div className="p-4 bg-gray-700/50 rounded-lg"><h2 className="font-bold text-lg mb-2 flex items-center gap-2"><HiMapPin className="text-pink-400" /><span>Step 1: Your Location</span></h2>{!location ? (<button onClick={handleGetLocation} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg w-full transition-colors flex items-center justify-center gap-2"><HiMapPin /><span>Get My Location</span></button>) : (<div className="flex items-center gap-2"><div className="flex-grow bg-green-600 text-white font-bold py-2 px-4 rounded-lg text-center flex items-center justify-center gap-2"><HiCheckCircle /><span>Location Captured!</span></div><button onClick={handleGetLocation} title="Retake Location" className="flex-shrink-0 bg-blue-500 hover:bg-blue-600 text-white p-2.5 rounded-lg transition-colors"><HiArrowPath className="h-5 w-5" /></button></div>)}</div>
+          
+          <div className="p-4 bg-gray-700/50 rounded-lg">
+            <h2 className="font-bold text-lg mb-2 flex items-center gap-2"><HiMapPin className="text-pink-400" /><span>Step 1: Your Location</span></h2>
+            
+            {location ? (
+              <div className="flex items-center gap-2">
+                <div className="flex-grow bg-green-600 text-white font-bold py-2 px-4 rounded-lg text-center flex items-center justify-center gap-2"><HiCheckCircle /><span>Location Captured!</span></div>
+                <button onClick={handleGetLocation} title="Retake Location" className="flex-shrink-0 bg-blue-500 hover:bg-blue-600 text-white p-2.5 rounded-lg"><HiArrowPath className="h-5 w-5" /></button>
+              </div>
+            ) : (
+              <button onClick={handleGetLocation} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg w-full flex items-center justify-center gap-2">
+                <HiMapPin /><span>Use My Current Location</span>
+              </button>
+            )}
+
+            <div className="my-3 text-center text-gray-400 text-sm font-semibold">OR</div>
+
+            <input 
+              type="text"
+              placeholder="Enter a city or neighborhood"
+              className="w-full bg-gray-600 border border-gray-500 rounded-lg p-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-pink-400"
+              value={manualLocationName}
+              onChange={handleManualLocationChange}
+            />
+          </div>
+
           <div className="p-4 bg-gray-700/50 rounded-lg"><h2 className="font-bold text-lg mb-3 flex items-center gap-2"><HiSparkles className="text-pink-400" /><span>Step 2: The Vibe</span></h2><div className="grid grid-cols-3 gap-2">{DATE_VIBES.map(vibe => (<button key={vibe} onClick={() => setSelectedVibe(vibe)} className={`p-2 rounded-lg text-sm font-semibold transition-all ${selectedVibe === vibe ? 'bg-pink-600' : 'bg-gray-600 hover:bg-gray-500'}`}>{vibe}</button>))}</div></div>
           <div className="p-4 bg-gray-700/50 rounded-lg"><h2 className="font-bold text-lg mb-2 flex items-center gap-2"><HiTruck className="text-pink-400" /><span>Step 3: How You'll Get Around</span></h2><select value={transportMode} onChange={(e) => setTransportMode(e.target.value)} className="w-full p-2 bg-gray-600 rounded-lg">{TRANSPORT_MODES.map(mode => <option key={mode} value={mode}>{mode}</option>)}</select></div>
           <div className="p-4 bg-gray-700/50 rounded-lg"><h2 className="font-bold text-lg mb-2 flex items-center gap-2"><HiCog8Tooth className="text-pink-400" /><span>Step 4: Preferences</span></h2><label htmlFor="isAdultToggle" className="flex items-center justify-between cursor-pointer"><span className="text-gray-200">Include 18+ locations</span><div className="relative"><input type="checkbox" id="isAdultToggle" className="sr-only" checked={isAdult} onChange={() => setIsAdult(!isAdult)} /><div className="block bg-gray-600 w-14 h-8 rounded-full"></div><div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${isAdult ? 'transform translate-x-6 bg-pink-400' : ''}`}></div></div></label></div>
-          <button onClick={handlePlanDate} disabled={isPlanButtonDisabled} className="w-full bg-pink-500 text-white font-bold py-3 rounded-lg text-lg transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed hover:bg-pink-600 flex items-center justify-center gap-2">{loading ? (<><HiArrowPath className="animate-spin h-5 w-5" /><span>Generating...</span></>) : (<><span>Plan My Date!</span><HiSparkles className="h-5 w-5" /></>)}</button>
+          
+          <button onClick={handlePlanDate} disabled={isPlanButtonDisabled} className="w-full bg-pink-500 text-white font-bold py-3 rounded-lg text-lg flex items-center justify-center gap-2 transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed hover:bg-pink-600">{loading ? (<><HiArrowPath className="animate-spin h-5 w-5" /><span>Generating...</span></>) : (<><span>Plan My Date!</span><HiSparkles className="h-5 w-5" /></>)}</button>
           {error && <div className="text-red-400 bg-red-900/50 p-3 rounded-lg text-center">{error}</div>}
         </div>
         
@@ -156,7 +202,7 @@ function App() {
           <div ref={resultsRef} className="p-6 bg-gray-800 rounded-lg shadow-lg space-y-4">
             <h2 className="text-2xl font-bold text-center text-pink-400">{planTitle || "Your Generated Date Plan"}</h2>
             
-            <GoogleMap mapContainerStyle={mapContainerStyle} center={location} zoom={13} onLoad={onMapLoad} options={{ disableDefaultUI: true, zoomControl: true }}>
+            <GoogleMap mapContainerStyle={mapContainerStyle} center={location || { lat: parseFloat(datePlan[0].lat), lng: parseFloat(datePlan[0].lng) }} zoom={13} onLoad={onMapLoad} options={{ disableDefaultUI: true, zoomControl: true }}>
               {location && <Marker position={location} title="Your Location" />}
               {datePlan.map((stop) => {
                 const labelText = (stop.stopNumber != null && typeof stop.stopNumber !== 'object') ? `${stop.stopNumber}` : '';
