@@ -20,19 +20,19 @@ app.use(express.json());
 const createDateStopTool = {
   functionDeclarations: [{
     name: 'create_date_stop',
-    description: 'Creates a single stop in the date itinerary.',
+    description: 'Creates a single stop in an itinerary.',
     parameters: {
       type: 'OBJECT',
       properties: {
         stopNumber: { type: 'NUMBER', description: 'The sequence number of the stop (1, 2, 3, etc.).' },
-        name: { type: 'STRING', description: "The proper, real-world name of the establishment, park, or landmark (e.g., 'Cafe Madras', 'Gateway of India')." },
-        description: { type: 'STRING', description: 'A 2-sentence compelling description of the place and why it fits the vibe.' },
+        name: { type: 'STRING', description: "The proper, real-world name of the establishment, park, or landmark." },
+        description: { type: 'STRING', description: 'A 2-sentence compelling description of the place.' },
         address: { type: 'STRING', description: 'The full street address of the location.' },
         lat: { type: 'NUMBER', description: 'The latitude coordinate.' },
         lng: { type: 'NUMBER', description: 'The longitude coordinate.' },
-        type: { type: 'STRING', description: 'The category of the location. Must be one of: Food, Cafe, Bar, Activity, Park, Shop.' },
-        startTime: { type: 'STRING', description: 'The suggested start time for this stop (e.g., "18:00").' },
-        duration: { type: 'STRING', description: 'The suggested duration for this stop (e.g., "1.5 hours").' },
+        type: { type: 'STRING', description: 'Category: Food, Cafe, Bar, Activity, Park, Shop.' },
+        startTime: { type: 'STRING', description: 'Suggested start time (e.g., "09:00").' },
+        duration: { type: 'STRING', description: 'Suggested duration (e.g., "1.5 hours").' },
       },
       required: ['stopNumber', 'name', 'description', 'address', 'lat', 'lng', 'type', 'startTime', 'duration'],
     },
@@ -46,10 +46,10 @@ const createTravelLegTool = {
     parameters: {
       type: 'OBJECT',
       properties: {
-        fromStop: { type: 'NUMBER', description: 'The stop number this travel leg starts FROM (e.g., 1).' },
-        toStop: { type: 'NUMBER', description: 'The stop number this travel leg goes TO (e.g., 2).' },
-        transportMode: { type: 'STRING', description: 'The mode of transport for this leg (e.g., "Walking", "Auto-rickshaw").' },
-        travelTime: { type: 'STRING', description: 'The estimated travel time for this leg (e.g., "15 minutes").' },
+        fromStop: { type: 'NUMBER' },
+        toStop: { type: 'NUMBER' },
+        transportMode: { type: 'STRING' },
+        travelTime: { type: 'STRING' },
       },
       required: ['fromStop', 'toStop', 'transportMode', 'travelTime'],
     },
@@ -58,25 +58,18 @@ const createTravelLegTool = {
 
 // --- HELPER FUNCTIONS ---
 
-/**
- * Converts a location name string (e.g., "Thane") into coordinates.
- * @param {string} locationName
- * @returns {Promise<{lat: number, lng: number}>}
- */
 async function getCoordsFromLocationName(locationName) {
   try {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locationName)}&format=json&limit=1`;
     const response = await axios.get(url, { headers: { 'User-Agent': 'AI-Date-Planner-Server' } });
-
     if (response.data && response.data.length > 0) {
       const { lat, lon } = response.data[0];
       return { lat: parseFloat(lat), lng: parseFloat(lon) };
-    } else {
-      throw new Error(`Could not find coordinates for "${locationName}".`);
     }
+    throw new Error(`Could not find coordinates for "${locationName}".`);
   } catch (error) {
     console.error("Geocoding Error:", error.message);
-    throw new Error(`Could not find a valid location for "${locationName}". Please be more specific.`);
+    throw new Error(`Could not find a valid location for "${locationName}".`);
   }
 }
 
@@ -85,8 +78,8 @@ async function getLocationContext(lat, lng) {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16`;
     const response = await axios.get(url, { headers: { 'User-Agent': 'AI-Date-Planner-Server' } });
     const address = response.data.address;
-    const specificArea = address.suburb || address.neighbourhood || address.quarter || address.road || "the user's area";
-    const city = address.city || address.town || address.state_district || "";
+    const specificArea = address.suburb || address.neighbourhood || address.road || "the user's area";
+    const city = address.city || address.town || "";
     return city ? `the ${specificArea} area of ${city}` : specificArea;
   } catch (error) {
     console.error("Error fetching location context:", error.message);
@@ -94,72 +87,87 @@ async function getLocationContext(lat, lng) {
   }
 }
 
-function constructItineraryPrompt(locationContext, dateVibe, transportMode, isAdult) {
-  const ageInstruction = isAdult
-    ? "The plan is for adults and can include venues like bars, lounges, and 18+ establishments."
-    : "The plan MUST be all-ages and teen-friendly. Do NOT include places that are primarily bars.";
+/**
+ * **NEW** - Prompt for the "Simple Mode", inspired by your shared code.
+ */
+function constructSimplePrompt() {
+  return `You are a knowledgeable, geographically-aware assistant. Your goal is to answer any location-related query by creating a detailed, visual day plan.
+    - Create a detailed day itinerary with a logical sequence of locations.
+    - Aim for 4-6 major stops.
+    - Include specific times, realistic durations, and travel details between stops.
+    - First, provide a creative title for the plan as a text response.
+    - Then, use the 'create_date_stop' and 'create_travel_leg' tools to build the full itinerary.`;
+}
 
-  return `
-    You are a world-class, creative, and expert local guide. Your goal is to generate the best possible date itinerary based on the user's request.
-
-    **Core Philosophy:**
-    -   **Be a Local Expert:** The user is in **${locationContext}**. Create a plan that deeply reflects the character, landmarks, and hidden gems of THIS SPECIFIC AREA.
-    -   **Flexibility is Key:** The number of stops is up to you (typically 2-5). Create what you think is best for a great, well-paced date in this area.
-
-    **Your Task & Rules:**
-    1.  First, create a single, creative 'planTitle' for the date. This should be the first part of your text response.
-    2.  Use the provided tools to build the itinerary.
-    3.  **CRITICAL RULE:** The 'name' for each stop MUST be the proper name of a real-world establishment, park, or landmark (e.g., 'Sanjay Gandhi National Park', 'Pizza Express'), NOT a generic activity description (e.g., 'Evening Stroll', 'Dinner with a View').
-    4.  Call 'create_date_stop' for each stop and 'create_travel_leg' for the journey between stops.
-  `;
+/**
+ * **NEW** - Prompt for our "Advanced Mode".
+ */
+function constructAdvancedPrompt(locationContext, dateVibe, transportMode, isAdult) {
+  const ageInstruction = isAdult ? "The plan is for adults..." : "The plan MUST be all-ages...";
+  return `You are a world-class date planner. Your goal is to generate the best possible date itinerary based on the user's specific preferences.
+    - The user is in **${locationContext}**. Create a plan that reflects the character of THIS SPECIFIC AREA.
+    - The desired date vibe is: "${dateVibe}". This is your main creative guide.
+    - The user's primary transport is "${transportMode}".
+    - Adhere to the age guidance: ${ageInstruction}.
+    - First, provide a creative title. Then use the tools to build a flexible plan of 2-5 stops.
+    - **CRITICAL RULE:** The 'name' for each stop must be a real-world establishment, not a generic activity.`;
 }
 
 // --- API ROUTE ---
 app.post('/api/generate-plan', async (req, res) => {
   try {
-    const { location, locationName, dateVibe, transportMode, isAdult = false } = req.body;
-    let lat, lng;
+    const { prompt, location, locationName, dateVibe, transportMode, isAdult = false } = req.body;
+    let systemInstruction;
+    let userMessage;
 
-    // Determine coordinates from either input type
-    if (locationName) {
-      console.log(`Input type: Location Name ("${locationName}")`);
-      const coords = await getCoordsFromLocationName(locationName);
-      lat = coords.lat;
-      lng = coords.lng;
-    } else if (location && location.lat && location.lng) {
-      console.log(`Input type: Coordinates (${location.lat}, ${location.lng})`);
-      lat = location.lat;
-      lng = location.lng;
+    // **NEW LOGIC** - Determine which mode is being used
+    if (prompt) {
+      // SIMPLE MODE
+      console.log('Mode: Simple');
+      systemInstruction = constructSimplePrompt();
+      userMessage = prompt; // The user's freeform text is the prompt
     } else {
-      return res.status(400).json({ error: 'Missing location data. Provide either locationName or location with lat/lng.' });
+      // ADVANCED MODE
+      console.log('Mode: Advanced');
+      let lat, lng;
+      if (locationName) {
+        const coords = await getCoordsFromLocationName(locationName);
+        lat = coords.lat;
+        lng = coords.lng;
+      } else if (location) {
+        lat = location.lat;
+        lng = location.lng;
+      } else {
+        return res.status(400).json({ error: 'Missing location data for Advanced Mode.' });
+      }
+      const locationContext = await getLocationContext(lat, lng);
+      systemInstruction = constructAdvancedPrompt(locationContext, dateVibe, transportMode, isAdult);
+      userMessage = "Please generate the date plan."; // Generic message, context is in the system prompt
     }
 
-    // The rest of the logic proceeds identically once we have coordinates
-    const locationContext = await getLocationContext(lat, lng);
-    const systemInstruction = constructItineraryPrompt(locationContext, dateVibe, transportMode, isAdult);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", systemInstruction, tools: [createDateStopTool, createTravelLegTool] });
-    
-    console.log("Calling Context-Aware AI Planner...");
-    const result = await model.generateContent("Please generate the best possible date plan based on my context.");
-    const functionCalls = result.response.functionCalls() || [];
+    // --- The rest of the logic is now shared ---
 
-    // Assemble the final plan from the AI's function calls
-    console.log(`Assembling plan from ${functionCalls.length} function calls...`);
+    const model = genAI.getGenerativeModel({
+        model: "gemini-1.5-flash",
+        systemInstruction,
+        tools: [createDateStopTool, createTravelLegTool],
+    });
+
+    console.log("Calling AI Planner...");
+    const result = await model.generateContent(userMessage);
+    const functionCalls = result.response.functionCalls() || [];
+    console.log(`-> AI Planner responded with ${functionCalls.length} function calls.`);
+    
+    // Assemble the plan from the AI's function calls
     const stops = [];
     const travelLegs = [];
     for (const fn of functionCalls) {
-        if (fn.name === 'create_date_stop') {
-            stops.push(fn.args);
-        } else if (fn.name === 'create_travel_leg') {
-            travelLegs.push(fn.args);
-        }
+        if (fn.name === 'create_date_stop') stops.push(fn.args);
+        else if (fn.name === 'create_travel_leg') travelLegs.push(fn.args);
     }
+    if (stops.length === 0) throw new Error("AI failed to generate any stops for this request.");
 
-    if (stops.length < 2) {
-        throw new Error("AI failed to generate a plan with at least two stops.");
-    }
-
-    const planTitle = result.response.text().trim() || `A Great ${dateVibe} Date`;
+    const planTitle = result.response.text().trim() || `Your Custom Plan`;
     stops.sort((a, b) => a.stopNumber - b.stopNumber);
 
     const finalStops = stops.map(stop => {
@@ -171,9 +179,7 @@ app.post('/api/generate-plan', async (req, res) => {
         return finalStop;
     });
 
-    const finalPlan = { planTitle, stops: finalStops };
-
-    res.status(200).json(finalPlan);
+    res.status(200).json({ planTitle, stops: finalStops });
 
   } catch (error) {
     console.error("Error in /api/generate-plan:", error);
